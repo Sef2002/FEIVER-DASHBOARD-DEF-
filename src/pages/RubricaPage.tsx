@@ -1,35 +1,60 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Search, UserPlus, Phone, Mail, Calendar } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import AddClientModal from '@/components/AddClientModal';
+import BookingModal from '@/components/BookingModal';
 
 const RubricaPage = () => {
-  const clients = [
-    {
-      id: 1,
-      name: 'Marco Rossi',
-      phone: '+39 333 1234567',
-      email: 'marco.rossi@email.com',
-      lastVisit: '15/02/2024',
-      nextAppointment: '22/03/2024',
-    },
-    {
-      id: 2,
-      name: 'Luca Bianchi',
-      phone: '+39 334 7654321',
-      email: 'luca.bianchi@email.com',
-      lastVisit: '20/02/2024',
-      nextAppointment: null,
-    },
-    {
-      id: 3,
-      name: 'Giuseppe Verdi',
-      phone: '+39 335 9876543',
-      email: 'giuseppe.verdi@email.com',
-      lastVisit: '18/02/2024',
-      nextAppointment: '25/03/2024',
-    },
-  ];
+  const [clients, setClients] = useState<any[]>([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [bookingClient, setBookingClient] = useState<any>(null);
+
+  const fetchClients = async () => {
+    const { data: clientsData } = await supabase.from('rubrica').select('*');
+    const today = new Date().toISOString().split('T')[0];
+
+    const { data: pastAppointments } = await supabase
+      .from('appointments')
+      .select('customer_email, appointment_date')
+      .lt('appointment_date', today);
+
+    const latestAppointments: Record<string, string> = {};
+    pastAppointments?.forEach((appt) => {
+      const email = appt.customer_email;
+      const date = appt.appointment_date;
+      if (!latestAppointments[email] || date > latestAppointments[email]) {
+        latestAppointments[email] = date;
+      }
+    });
+
+    const { data: futureAppointments } = await supabase
+      .from('appointments')
+      .select('customer_email, appointment_date')
+      .gte('appointment_date', today);
+
+    const nextAppointments: Record<string, string> = {};
+    futureAppointments?.forEach((appt) => {
+      const email = appt.customer_email;
+      const date = appt.appointment_date;
+      if (!nextAppointments[email] || date < nextAppointments[email]) {
+        nextAppointments[email] = date;
+      }
+    });
+
+    const enrichedClients = (clientsData || []).map((client) => ({
+      ...client,
+      lastVisit: latestAppointments[client.customer_email] || null,
+      nextVisit: nextAppointments[client.customer_email] || null,
+    }));
+
+    setClients(enrichedClients);
+  };
+
+  useEffect(() => {
+    fetchClients();
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -50,7 +75,7 @@ const RubricaPage = () => {
               className="w-full rounded-md border border-gray-300 pl-10 pr-4 py-2 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
             />
           </div>
-          <Button className="flex items-center gap-2">
+          <Button className="flex items-center gap-2" onClick={() => setModalOpen(true)}>
             <UserPlus size={20} />
             <span>Nuovo Cliente</span>
           </Button>
@@ -71,34 +96,40 @@ const RubricaPage = () => {
               {clients.map((client) => (
                 <tr key={client.id} className="border-b">
                   <td className="py-4">
-                    <div className="font-medium">{client.name}</div>
+                    <div className="font-medium">{client.customer_name}</div>
                   </td>
                   <td className="py-4">
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <Phone size={16} />
-                        {client.phone}
+                        {client.customer_phone}
                       </div>
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <Mail size={16} />
-                        {client.email}
+                        {client.customer_email}
                       </div>
                     </div>
                   </td>
                   <td className="py-4">
                     <div className="flex items-center gap-2 text-sm text-gray-500">
                       <Calendar size={16} />
-                      {client.lastVisit}
+                      {client.lastVisit
+                        ? new Date(client.lastVisit).toLocaleDateString("it-IT")
+                        : "—"}
                     </div>
                   </td>
                   <td className="py-4">
-                    {client.nextAppointment ? (
-                      <div className="flex items-center gap-2 text-sm text-green-600">
+                    {client.nextVisit ? (
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
                         <Calendar size={16} />
-                        {client.nextAppointment}
+                        {new Date(client.nextVisit).toLocaleDateString("it-IT")}
                       </div>
                     ) : (
-                      <Button variant="outline" size="sm">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setBookingClient(client)}
+                      >
                         Prenota
                       </Button>
                     )}
@@ -114,6 +145,23 @@ const RubricaPage = () => {
           </table>
         </div>
       </Card>
+
+      <AddClientModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSuccess={fetchClients}
+      />
+
+      {bookingClient && (
+        <BookingModal
+          client={bookingClient}
+          onClose={() => setBookingClient(null)}
+          onSuccess={() => {
+            setBookingClient(null);
+            fetchClients();
+          }}
+        />
+      )}
     </div>
   );
 };

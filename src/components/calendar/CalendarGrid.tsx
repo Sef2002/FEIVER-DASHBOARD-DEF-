@@ -10,6 +10,8 @@ import { ErrorBoundary } from 'react-error-boundary';
 import { Loader2 } from 'lucide-react';
 import { BARBER_IDS, BARBER_IMAGES } from '@/lib/constants';
 import AppointmentCard from './AppointmentCard';
+import AppointmentEditor from './AppointmentEditor';
+import AppointmentPay from './AppointmentPay'; // ✅ make sure this path is correct
 import { DndContext, DragEndEvent, closestCenter } from '@dnd-kit/core';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 
@@ -54,6 +56,8 @@ const LoadingState = () => (
 const CalendarGrid: React.FC<Props> = ({ barber, selectedDate }) => {
   const [appointments, setAppointments] = useState<FormattedAppointment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [editingAppt, setEditingAppt] = useState<FormattedAppointment | null>(null);
+  const [payingAppt, setPayingAppt] = useState<FormattedAppointment | null>(null); // ✅
 
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
@@ -65,7 +69,7 @@ const CalendarGrid: React.FC<Props> = ({ barber, selectedDate }) => {
         const data = await getBarberAppointments(barberId, selectedDate);
         setAppointments(data);
 
-        unsubscribe = subscribeToAppointments(barberId, (updatedAppointments) => {
+        unsubscribe = subscribeToAppointments(barberId, selectedDate, (updatedAppointments) => {
           setAppointments(updatedAppointments);
         });
       } catch (error) {
@@ -99,14 +103,12 @@ const CalendarGrid: React.FC<Props> = ({ barber, selectedDate }) => {
     const [startHour, startMin] = appt.start.split(':').map(Number);
     let newTotalMinutes = startHour * 60 + startMin + minutesMoved;
 
-    // Clamp to 06:00 (360) - 22:00 (1320)
     newTotalMinutes = Math.max(360, Math.min(1320, newTotalMinutes));
     const snappedMinutes = Math.round(newTotalMinutes / 30) * 30;
 
     const newHour = Math.floor(snappedMinutes / 60);
     const newMin = snappedMinutes % 60;
     const newTime = `${String(newHour).padStart(2, '0')}:${String(newMin).padStart(2, '0')}`;
-
     const newDate = selectedDate.toLocaleDateString('sv-SE');
 
     try {
@@ -122,73 +124,129 @@ const CalendarGrid: React.FC<Props> = ({ barber, selectedDate }) => {
                 ...item,
                 start: newTime,
                 end: computeEndTime(newTime, item.duration),
+                duration: item.duration,
               }
             : item
         )
       );
-      console.log(`🟢 Updated ${appt.customer} to ${newTime} on ${newDate}`);
     } catch (error) {
       console.error('❌ Failed to update appointment:', error);
     }
   };
 
-  const barberId = getBarberUUID(barber);
+  const handleSaveEdit = async (updated: FormattedAppointment) => {
+    try {
+      await updateAppointment(updated.id, {
+        status: updated.status,
+        duration_min: updated.duration,
+      });
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a))
+      );
+      setEditingAppt(null);
+    } catch (err) {
+      console.error('Failed to update appointment:', err);
+    }
+  };
 
+  const handleConfirmPay = async (updated: FormattedAppointment) => {
+    try {
+      await updateAppointment(updated.id, {
+        duration_min: updated.duration,
+        // Add any other fields like status = 'pagato' or payment info
+      });
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a))
+      );
+      setPayingAppt(null);
+    } catch (err) {
+      console.error('Failed to confirm payment:', err);
+    }
+  };
+
+  const barberId = getBarberUUID(barber);
   if (isLoading) return <LoadingState />;
 
   return (
     <ErrorBoundary FallbackComponent={ErrorFallback}>
-      <div className="flex h-full flex-col">
-        {/* Header */}
-        <div className="flex items-center gap-4 border-b p-4 bg-gray-50">
-          <div className="h-12 w-12 overflow-hidden rounded-full border-2 border-gray-200">
-            <img
-              src={BARBER_IMAGES[barberId]}
-              alt={barber}
-              className="h-full w-full object-cover"
-            />
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold capitalize">{barber}</h2>
-            <p className="text-sm text-gray-500">{format(selectedDate, 'EEEE d MMMM')}</p>
-          </div>
-        </div>
+      <div className="relative h-full w-full">
+        {editingAppt && (
+          <AppointmentEditor
+            appointment={editingAppt}
+            onClose={() => setEditingAppt(null)}
+            onSave={handleSaveEdit}
+          />
+        )}
 
-        {/* Time Grid */}
-        <div className="flex-1 overflow-y-auto relative" style={{ height: '3840px' }}>
-          {workingIntervals.map((time, i) => (
-            <div
-              key={time}
-              className="absolute left-0 w-full border-b border-gray-100 pl-3 pt-1 text-xs text-gray-500"
-              style={{ top: `${i * 120}px`, height: '120px' }}
-            >
-              {time}
+        {payingAppt && (
+          <AppointmentPay
+            appointment={payingAppt}
+            onClose={() => setPayingAppt(null)}
+            onConfirm={handleConfirmPay}
+          />
+        )}
+
+        <div className="flex h-full flex-col">
+          <div className="flex items-center gap-4 border-b p-4 bg-gray-50">
+            <div className="h-12 w-12 overflow-hidden rounded-full border-2 border-gray-200">
+              <img
+                src={BARBER_IMAGES[barberId]}
+                alt={barber}
+                className="h-full w-full object-cover"
+              />
             </div>
-          ))}
+            <div>
+              <h2 className="text-lg font-semibold capitalize">{barber}</h2>
+              <p className="text-sm text-gray-500">{format(selectedDate, 'EEEE d MMMM')}</p>
+            </div>
+          </div>
 
-          <DndContext
-            onDragEnd={handleDragEnd}
-            modifiers={[restrictToVerticalAxis]}
-            collisionDetection={closestCenter}
-          >
-            {appointments.map((appt) => {
-              const [startHour, startMin] = appt.start.split(':').map(Number);
-              const [endHour, endMin] = appt.end.split(':').map(Number);
-              const startMins = startHour * 60 + startMin;
-              const endMins = endHour * 60 + endMin;
-              const offsetTop = (startMins - 360) * 4;
-              const height = (endMins - startMins) * 4;
+          <div className="flex-1 overflow-y-auto relative" style={{ height: '3840px' }}>
+            {workingIntervals.map((time, i) => (
+              <div
+                key={time}
+                className="absolute left-0 w-full border-b border-gray-100 pl-3 pt-1 text-xs text-gray-500"
+                style={{ top: `${i * 120}px`, height: '120px' }}
+              >
+                {time}
+              </div>
+            ))}
 
-              return (
-                <AppointmentCard
-                  key={appt.id}
-                  appt={appt}
-                  offsetTop={offsetTop}
-                  height={height}
-                />
-              );
-            })}
-          </DndContext>
+            <DndContext
+              onDragEnd={handleDragEnd}
+              modifiers={[restrictToVerticalAxis]}
+              collisionDetection={closestCenter}
+            >
+              {appointments.map((appt) => {
+                const [startHour, startMin] = appt.start.split(':').map(Number);
+                const [endHour, endMin] = appt.end.split(':').map(Number);
+                const startMins = startHour * 60 + startMin;
+                const endMins = endHour * 60 + endMin;
+                const offsetTop = (startMins - 360) * 4;
+                const height = (endMins - startMins) * 4;
+
+                return (
+                  <AppointmentCard
+                    key={appt.id}
+                    appt={appt}
+                    offsetTop={offsetTop}
+                    height={height}
+                    isEditing={!!editingAppt}
+                    onEdit={() => {
+                      requestAnimationFrame(() => {
+                        setEditingAppt({ ...appt });
+                      });
+                    }}
+                    onPay={() => {
+                      requestAnimationFrame(() => {
+                        setPayingAppt({ ...appt });
+                      });
+                    }}
+                  />
+                );
+              })}
+            </DndContext>
+          </div>
         </div>
       </div>
     </ErrorBoundary>

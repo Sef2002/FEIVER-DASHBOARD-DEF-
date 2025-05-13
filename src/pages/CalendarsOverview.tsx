@@ -29,12 +29,12 @@ const CalendarsOverview = () => {
         {/* Right: Appointment Columns (fill remaining space) */}
         <div className="grid flex-1 grid-cols-2 gap-4">
           {/* Alket */}
-          <Card className="flex h-full w-full overflow-hidden">
+          <Card className="flex h-full w-full overflow-visible relative">
             <CalendarGrid barber="alket" selectedDate={selectedDate} />
           </Card>
 
           {/* Gino */}
-          <Card className="flex h-full w-full overflow-hidden">
+          <Card className="flex h-full w-full overflow-visible relative">
             <CalendarGrid barber="gino" selectedDate={selectedDate} />
           </Card>
         </div>

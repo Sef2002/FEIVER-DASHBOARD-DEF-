@@ -1,4 +1,4 @@
-import { startOfDay, endOfDay } from 'date-fns';
+// appointments.ts
 import { supabase } from './supabase';
 
 export interface Service {
@@ -6,6 +6,11 @@ export interface Service {
   name: string;
   price: number;
   duration_min: number;
+}
+
+export interface Barber {
+  id: string;
+  name: string;
 }
 
 export interface Appointment {
@@ -21,6 +26,7 @@ export interface Appointment {
   created_at: string;
   updated_at: string;
   services: Service;
+  barbers: Barber;
 }
 
 export interface FormattedAppointment {
@@ -32,6 +38,9 @@ export interface FormattedAppointment {
   duration: number;
   price: number;
   phone?: string | null;
+  barber_id: string;
+  barber_name: string;
+  service_id: string;
 }
 
 export const getBarberAppointments = async (
@@ -39,7 +48,7 @@ export const getBarberAppointments = async (
   date: Date
 ): Promise<FormattedAppointment[]> => {
   try {
-    const appointmentDate = date.toLocaleDateString('sv-SE'); // "YYYY-MM-DD"
+    const appointmentDate = date.toLocaleDateString('sv-SE');
 
     const { data, error } = await supabase
       .from('appointments')
@@ -56,9 +65,14 @@ export const getBarberAppointments = async (
         created_at,
         updated_at,
         services (
+          id,
           name,
           price,
           duration_min
+        ),
+        barbers (
+          id,
+          name
         )
       `)
       .eq('barber_id', barberId)
@@ -77,19 +91,16 @@ export const getBarberAppointments = async (
 
       return {
         id: appointment.id,
-        start: startDate.toLocaleTimeString('it-IT', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-        end: endDate.toLocaleTimeString('it-IT', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
+        start: startDate.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
+        end: endDate.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' }),
         customer: appointment.customer_name,
         treatment: appointment.services.name,
         duration: appointment.duration_min,
         price: appointment.services.price,
         phone: appointment.customer_phone,
+        barber_id: appointment.barber_id,
+        barber_name: appointment.barbers?.name ?? 'Sconosciuto',
+        service_id: appointment.service_id,
       };
     });
   } catch (error) {
@@ -100,6 +111,7 @@ export const getBarberAppointments = async (
 
 export const subscribeToAppointments = (
   barberId: string,
+  selectedDate: Date,
   callback: (appointments: FormattedAppointment[]) => void
 ) => {
   const subscription = supabase
@@ -114,7 +126,7 @@ export const subscribeToAppointments = (
       },
       async () => {
         try {
-          const appointments = await getBarberAppointments(barberId, new Date());
+          const appointments = await getBarberAppointments(barberId, selectedDate);
           callback(appointments);
         } catch (error) {
           console.error('Error refreshing appointments:', error);
@@ -128,16 +140,11 @@ export const subscribeToAppointments = (
   };
 };
 
-// ✅ NEW: Used to update appointment after dragging
 export const updateAppointment = async (
   id: string,
   updates: Partial<Appointment>
 ): Promise<void> => {
-  const { error } = await supabase
-    .from('appointments')
-    .update(updates)
-    .eq('id', id);
-
+  const { error } = await supabase.from('appointments').update(updates).eq('id', id);
   if (error) {
     console.error('Error updating appointment:', error);
     throw new Error(`Failed to update appointment: ${error.message}`);

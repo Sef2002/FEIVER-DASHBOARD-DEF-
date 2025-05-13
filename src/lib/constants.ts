@@ -9,3 +9,11 @@ export const BARBER_IMAGES = {
   [BARBER_IDS.ALKET]: 'https://images.pexels.com/photos/1804796/pexels-photo-1804796.jpeg',
   [BARBER_IDS.GINO]: 'https://images.pexels.com/photos/1319461/pexels-photo-1319461.jpeg',
 } as const;
+
+// Appointment Statuses
+export const appointmentStatuses = [
+  'in attesa',
+  'confermato',
+  'cancellato',
+  'assente',
+] as const;
